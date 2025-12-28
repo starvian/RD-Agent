@@ -99,6 +99,9 @@ class LoopBase:
         type[BaseException], ...
     ] = ()  # you can define a list of error that will withdraw current loop
 
+    # 重复错误检测配置 (Patch 001)
+    max_repeated_error_count: int = 3  # 相同错误最大重复次数
+
     EXCEPTION_KEY = "_EXCEPTION"
     LOOP_IDX_KEY = "_LOOP_IDX"
     SENTINEL = -1
@@ -116,6 +119,9 @@ class LoopBase:
         self.loop_idx: int = 0  # current loop index / next loop index to kickoff
         self.step_idx: defaultdict[int, int] = defaultdict(int)  # dict from loop index to next step index
         self.queue: asyncio.Queue[Any] = asyncio.Queue()
+
+        # 重复错误检测 (Patch 001)
+        self._error_history: list[str] = []
 
         # Store step results for all loops in a nested dictionary, following information will be stored:
         # - loop_prev_out[loop_index][step_name]: the output of the step function
@@ -189,6 +195,38 @@ class LoopBase:
             else:
                 logger.info(f"Timer remaining time: {self.timer.remain_time()}")
 
+    def _check_repeated_error(self, error: Exception) -> bool:
+        """检查是否是重复的环境错误 (Patch 001)
+
+        如果最近 N 次错误完全相同，说明是环境问题而非假设问题，
+        应该停止循环让用户修复环境。
+
+        Args:
+            error: 捕获的异常
+
+        Returns:
+            True 如果检测到重复环境错误，应该停止循环
+        """
+        # 生成错误签名（类型 + 消息前100字符）
+        error_sig = f"{type(error).__name__}: {str(error)[:100]}"
+        self._error_history.append(error_sig)
+
+        # 只保留最近的错误记录，避免内存泄漏
+        max_history = self.max_repeated_error_count * 2
+        if len(self._error_history) > max_history:
+            self._error_history = self._error_history[-max_history:]
+
+        # 检查最近 N 次是否完全相同
+        recent = self._error_history[-self.max_repeated_error_count:]
+        if len(recent) >= self.max_repeated_error_count:
+            if len(set(recent)) == 1:  # 全部相同
+                logger.error(
+                    f"检测到重复环境错误 {self.max_repeated_error_count} 次: {error_sig}\n"
+                    f"这可能是环境配置问题，请修复后重试。"
+                )
+                return True
+        return False
+
     async def _run_step(self, li: int, force_subproc: bool = False) -> None:
         """Execute a single step (next unrun step) in the workflow (async version with force_subproc option).
 
@@ -243,6 +281,13 @@ class LoopBase:
                     # Store result in the nested dictionary
                     self.loop_prev_out[li][name] = result
                 except Exception as e:
+                    # 检查是否是重复的环境错误 (Patch 001)
+                    if self._check_repeated_error(e):
+                        raise EnvironmentError(
+                            f"检测到重复环境错误，已停止循环。\n"
+                            f"错误: {e}\n"
+                            f"请修复环境问题后使用 --path 参数继续运行。"
+                        ) from e
                     if isinstance(e, self.skip_loop_error):
                         logger.warning(f"Skip loop {li} due to {e}")
                         # Jump to the last step (assuming last step is for recording)
