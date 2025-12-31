@@ -9,10 +9,13 @@ Postscripts:
 """
 
 import asyncio
+import atexit
 import concurrent.futures
 import copy
 import os
 import pickle
+import signal
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -115,6 +118,9 @@ class LoopBase:
         """Exception raised when loop conditions indicate the loop should stop all coroutines and resume"""
 
     def __init__(self) -> None:
+        # 注册清理处理器，确保子进程在主进程退出时被清理 (Patch 003)
+        register_cleanup_handlers()
+
         # progress control
         self.loop_idx: int = 0  # current loop index / next loop index to kickoff
         self.step_idx: defaultdict[int, int] = defaultdict(int)  # dict from loop index to next step index
@@ -561,6 +567,62 @@ class LoopBase:
         self.__dict__.update(state)
         self.queue = asyncio.Queue()
         self.semaphores = {}
+
+
+# ============================================================================
+# Patch 003: 子进程清理信号处理器 (TICKET-021)
+# ============================================================================
+
+_cleanup_registered = False  # 防止重复注册
+
+
+def _signal_handler(signum: int, frame) -> None:
+    """信号处理器: 清理子进程并退出
+
+    当收到 SIGTERM 或 SIGINT 信号时调用。
+    确保所有子进程被终止后，以正确的退出码退出。
+    """
+    try:
+        signal_name = signal.Signals(signum).name
+    except ValueError:
+        signal_name = f"SIGNAL_{signum}"
+    print(f"\n收到信号 {signal_name} ({signum})，正在清理子进程...")
+    try:
+        kill_subprocesses()
+    except Exception as e:
+        print(f"清理子进程时出错: {e}")
+    finally:
+        # 退出码 = 128 + 信号编号 (Unix 惯例)
+        sys.exit(128 + signum)
+
+
+def register_cleanup_handlers() -> None:
+    """注册进程清理处理器
+
+    包括:
+    - SIGTERM 信号处理器 (kill 命令)
+    - SIGINT 信号处理器 (CTRL+C)
+    - atexit 钩子 (正常退出时清理)
+
+    此函数可多次调用，但只会注册一次。
+    """
+    global _cleanup_registered
+    if _cleanup_registered:
+        return
+
+    # 注册信号处理器
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    # 注册 atexit 钩子（正常退出时清理）
+    atexit.register(kill_subprocesses)
+
+    _cleanup_registered = True
+
+
+# ============================================================================
+# End of Patch 003
+# ============================================================================
 
 
 def kill_subprocesses() -> None:
