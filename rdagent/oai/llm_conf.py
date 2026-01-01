@@ -49,6 +49,9 @@ class LLMSettings(ExtendedBaseSettings):
     timeout_fail_limit: int = 10
     violation_fail_limit: int = 1
 
+    # PATCH-004: 单次 LLM 调用超时 (秒)，防止 API 无响应导致永久等待
+    llm_call_timeout: int = 120  # 默认 2 分钟 (正常响应 5-30秒)
+
     # Behavior of returning answers to the same question when caching is enabled
     use_auto_chat_cache_seed_gen: bool = False
     """

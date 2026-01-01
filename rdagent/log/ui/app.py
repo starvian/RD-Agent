@@ -189,6 +189,7 @@ def get_msgs_until(end_func: Callable[[Message], bool] = lambda _: True):
                             except AttributeError:
                                 sms = msg.content.based_experiments[-1].__dict__["result"]
                             if sms is not None:
+                                sms_all = sms  # 先保存完整数据
                                 if isinstance(
                                     state.scenario,
                                     (
@@ -198,7 +199,6 @@ def get_msgs_until(end_func: Callable[[Message], bool] = lambda _: True):
                                         QlibQuantScenario,
                                     ),
                                 ):
-                                    sms_all = sms
                                     sms = sms.loc[QLIB_SELECTED_METRICS]
                                 sms.name = f"Baseline"
                                 state.metric_series.append(sms)
@@ -209,6 +209,7 @@ def get_msgs_until(end_func: Callable[[Message], bool] = lambda _: True):
                             sms = msg.content.result
                         except AttributeError:
                             sms = msg.content.__dict__["result"]
+                        sms_all = sms  # 先保存完整数据
                         if isinstance(
                             state.scenario,
                             (
@@ -218,7 +219,6 @@ def get_msgs_until(end_func: Callable[[Message], bool] = lambda _: True):
                                 QlibQuantScenario,
                             ),
                         ):
-                            sms_all = sms
                             sms = sms.loc[QLIB_SELECTED_METRICS]
 
                         sms.name = f"Round {state.lround}"

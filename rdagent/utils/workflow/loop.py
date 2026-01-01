@@ -249,6 +249,11 @@ class LoopBase:
         Any
             The result of the step function
         """
+        # PATCH-004: 步骤开始前检查超时
+        if self.timer.started and self.timer.is_timeout():
+            logger.warning(f"Timer timeout detected before step {self.step_idx[li]} of loop {li}")
+            raise self.LoopTerminationError("Timer timeout before step start")
+
         si = self.step_idx[li]
         name = self.steps[si]
 
