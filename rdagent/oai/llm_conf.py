@@ -12,7 +12,7 @@ class LLMSettings(ExtendedBaseSettings):
     # backend
     backend: str = "rdagent.oai.backend.LiteLLMAPIBackend"
 
-    chat_model: str = "gpt-4-turbo"
+    chat_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
 
     reasoning_effort: Literal["low", "medium", "high"] | None = None
